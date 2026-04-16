@@ -17,6 +17,7 @@ from phalp.utils import get_pylogger
 from phalp.configs.base import CACHE_DIR
 
 from hmr2.datasets.utils import expand_bbox_to_aspect_ratio
+from hmr2.utils.depth_renderer import render_depth_map
 
 warnings.filterwarnings('ignore')
 
@@ -62,13 +63,6 @@ class HMR2023TextureSampler(HMR2Predictor):
         self.img_size = 256         #self.cfg.MODEL.IMAGE_SIZE
         self.focal_length = 5000.   #self.cfg.EXTRA.FOCAL_LENGTH
 
-        import neural_renderer as nr
-        self.neural_renderer = nr.Renderer(dist_coeffs=None, orig_size=self.img_size,
-                                          image_size=self.img_size,
-                                          light_intensity_ambient=1,
-                                          light_intensity_directional=0,
-                                          anti_aliasing=False)
-
     def forward(self, x):
         batch = {
             'img': x[:,:3,:,:],
@@ -107,18 +101,10 @@ class HMR2023TextureSampler(HMR2Predictor):
         map_verts_proj = focal * map_verts[:, :, :2] / map_verts[:, :, 2:3] # B,N,2
         map_verts_depth = map_verts[:, :, 2] # B,N
 
-        # Render Depth. Annoying but we need to create this
-        K = torch.eye(3, device=device)
-        K[0, 0] = K[1, 1] = self.focal_length
-        K[1, 2] = K[0, 2] = self.img_size / 2  # Because the neural renderer only support squared images
-        K = K.unsqueeze(0)
-        R = torch.eye(3, device=device).unsqueeze(0)
-        t = torch.zeros(3, device=device).unsqueeze(0)
-        rend_depth = self.neural_renderer(pred_verts,
-                                        face_tensor[None].expand(pred_verts.shape[0], -1, -1).int(),
-                                        # textures=texture_atlas_rgb,
-                                        mode='depth',
-                                        K=K, R=R, t=t)
+        # Render depth map for visibility testing (using pyrender, no CUDA compilation needed)
+        rend_depth = render_depth_map(
+            pred_verts, face_tensor, self.focal_length, self.img_size
+        )
 
         rend_depth_at_proj = torch.nn.functional.grid_sample(rend_depth[:,None,:,:], map_verts_proj[:,None,:,:]) # B,1,1,N
         rend_depth_at_proj = rend_depth_at_proj.squeeze(1).squeeze(1) # B,N

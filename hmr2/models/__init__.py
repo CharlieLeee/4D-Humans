@@ -29,18 +29,29 @@ def download_models(folder=CACHE_DIR_4DHUMANS):
                 os.system("tar -xvf " + output_path + " -C " + url[1])
 
 def check_smpl_exists():
+    """Check that the SMPLH neutral model is available."""
     import os
+    smplh_dir = f'{CACHE_DIR_4DHUMANS}/data/smpl'
+    smplh_target = os.path.join(smplh_dir, 'SMPLH_NEUTRAL.pkl')
     candidates = [
-        f'{CACHE_DIR_4DHUMANS}/data/smpl/SMPL_NEUTRAL.pkl',
-        f'data/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl',
+        smplh_target,
+        '/media/data/share/smpl/SMPLH_NEUTRAL.pkl',
     ]
     candidates_exist = [os.path.exists(c) for c in candidates]
     if not any(candidates_exist):
-        raise FileNotFoundError(f"SMPL model not found. Please download it from https://smplify.is.tue.mpg.de/ and place it at {candidates[1]}")
+        raise FileNotFoundError(
+            "SMPLH model not found. Please download SMPLH_NEUTRAL.pkl "
+            "from https://mano.is.tue.mpg.de/ and place it at "
+            f"{smplh_target}"
+        )
 
-    # Code edxpects SMPL model at CACHE_DIR_4DHUMANS/data/smpl/SMPL_NEUTRAL.pkl. Copy there if needed
-    if (not candidates_exist[0]) and candidates_exist[1]:
-        convert_pkl(candidates[1], candidates[0])
+    # Copy/symlink to expected location if needed
+    if not candidates_exist[0]:
+        os.makedirs(smplh_dir, exist_ok=True)
+        for i, exists in enumerate(candidates_exist):
+            if exists:
+                os.symlink(candidates[i], smplh_target)
+                break
 
     return True
 
@@ -66,6 +77,7 @@ def convert_pkl(old_pkl, new_pkl):
 
 DEFAULT_CHECKPOINT=f'{CACHE_DIR_4DHUMANS}/logs/train/multiruns/hmr2/0/checkpoints/epoch=35-step=1000000.ckpt'
 def load_hmr2(checkpoint_path=DEFAULT_CHECKPOINT):
+    import torch
     from pathlib import Path
     from ..configs import get_config
     model_cfg = str(Path(checkpoint_path).parent.parent / 'model_config.yaml')
@@ -78,8 +90,24 @@ def load_hmr2(checkpoint_path=DEFAULT_CHECKPOINT):
         model_cfg.MODEL.BBOX_SHAPE = [192,256]
         model_cfg.freeze()
 
-    # Ensure SMPL model exists
+    # Ensure SMPLH model exists
     check_smpl_exists()
 
-    model = HMR2.load_from_checkpoint(checkpoint_path, strict=False, cfg=model_cfg)
+    # Build model (initialises SMPLH body model from the .pkl file)
+    model = HMR2(model_cfg, init_renderer=False)
+
+    # Load pretrained weights, skipping SMPL body-model buffers whose
+    # shapes changed (24-joint SMPL → 52-joint SMPLH).  These buffers
+    # are not learned — they come from the SMPLH .pkl file.
+    checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+    state_dict = checkpoint.get('state_dict', checkpoint)
+
+    model_state = model.state_dict()
+    filtered = {}
+    for k, v in state_dict.items():
+        if k in model_state and v.shape != model_state[k].shape:
+            continue  # skip size-mismatched body-model buffers
+        filtered[k] = v
+
+    model.load_state_dict(filtered, strict=False)
     return model, model_cfg

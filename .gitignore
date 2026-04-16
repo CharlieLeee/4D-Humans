@@ -2,7 +2,6 @@
 /logs*/
 /results/
 /sandbox/
-*.lock
 *.pt
 *.npy
 /example_data/downloaded*
@@ -144,5 +143,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# uv
+.python-version
+
 /checkpoints/
 /data/

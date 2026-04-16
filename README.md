@@ -9,21 +9,25 @@ Code repository for the paper:
 ![teaser](assets/teaser.png)
 
 ## Installation and Setup
-First, clone the repo. Then, we recommend creating a clean [conda](https://docs.conda.io/) environment, installing all dependencies, and finally activating the environment, as follows:
+First, clone the repo. We recommend using [uv](https://docs.astral.sh/uv/) for fast, reliable dependency management:
 ```bash
 git clone https://github.com/shubham-goel/4D-Humans.git
 cd 4D-Humans
-conda env create -f environment.yml
-conda activate 4D-humans
+
+# Install core dependencies
+uv sync
+
+# Install with all optional dependencies (detection, tracking, training)
+uv sync --all-extras
 ```
 
-If conda is too slow, you can use pip:
+If you prefer pip:
 ```bash
-conda create --name 4D-humans python=3.10
-conda activate 4D-humans
-pip install torch
-pip install -e .[all]
+pip install -e .            # core only
+pip install -e ".[all]"     # all extras (detection, tracking, training)
 ```
+
+**PyTorch with CUDA:** By default, the `pyproject.toml` is configured for CUDA 11.8. To use a different CUDA version, edit the `find-links` URL in `[tool.uv]` (e.g., replace `cu118` with `cu121` for CUDA 12.1).
 
 All checkpoints and data will automatically be downloaded to `$HOME/.cache/4DHumans` the first time you run the demo code.
 
@@ -39,12 +43,12 @@ python demo.py \
 ```
 
 ## Run tracking demo on videos
-Our tracker builds on PHALP, please install that first:
+Our tracker builds on PHALP, which must be installed separately (its transitive dependencies require special handling):
 ```bash
-pip install git+https://github.com/brjathu/PHALP.git
+uv pip install git+https://github.com/brjathu/PHALP.git
 ```
 
-Now, run `track.py` to reconstruct and track humans in any video. Input video source may be a video file, a folder of frames, or a youtube link:
+Run `track.py` to reconstruct and track humans in any video. Input video source may be a video file, a folder of frames, or a youtube link:
 ```bash
 # Run on video file
 python track.py video.source="example_data/videos/gymnasts.mp4"
